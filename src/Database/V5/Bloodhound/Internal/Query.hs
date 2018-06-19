@@ -48,6 +48,7 @@ data Query =
   | QueryTemplateQueryInline    TemplateQueryInline
   | QueryMatchNoneQuery
   | QueryWildcardQuery          WildcardQuery
+  | QueryGeoBoundingBoxQuery    GeoBoundingBoxConstraint
   deriving (Eq, Show)
 
 instance ToJSON Query where
@@ -151,6 +152,9 @@ instance ToJSON Query where
   toJSON (QueryWildcardQuery query) =
     object [ "wildcard" .= query ]
 
+  toJSON (QueryGeoBoundingBoxQuery query) =
+    object [ "geo_bounding_box" .= query]
+
 instance FromJSON Query where
   parseJSON v = withObject "Query" parse v
     where parse o = termQuery `taggedWith` "term"
@@ -181,6 +185,8 @@ instance FromJSON Query where
                 <|> querySimpleQueryStringQuery `taggedWith` "simple_query_string"
                 <|> queryTemplateQueryInline `taggedWith` "template"
                 <|> queryWildcardQuery `taggedWith` "wildcard"
+                <|> queryWildcardQuery `taggedWith` "wildcard"
+                <|> queryGeoBoundingBoxQuery
             where taggedWith parser k = parser =<< o .: k
           termQuery = fieldTagged $ \(FieldName fn) o ->
                         TermQuery <$> (Term fn <$> o .: "value") <*> o .:? "boost"
@@ -221,6 +227,7 @@ instance FromJSON Query where
           -- queryExistsQuery o = QueryExistsQuery <$> o .: "field"
           queryTemplateQueryInline = pure . QueryTemplateQueryInline
           queryWildcardQuery = pure . QueryWildcardQuery
+          queryGeoBoundingBoxQuery = QueryGeoBoundingBoxQuery <$> parseJSON v
 
 -- | As of Elastic 2.0, 'Filters' are just 'Queries' housed in a
 --   Bool Query, and flagged in a different context.
@@ -1370,23 +1377,20 @@ instance FromJSON GeoBoundingBox where
 data GeoBoundingBoxConstraint =
   GeoBoundingBoxConstraint { geoBBField        :: FieldName
                            , constraintBox     :: GeoBoundingBox
-                           , bbConstraintcache :: Cache
                            , geoType           :: GeoFilterType
                            } deriving (Eq, Show)
 
 instance ToJSON GeoBoundingBoxConstraint where
   toJSON (GeoBoundingBoxConstraint
-          (FieldName gbbcGeoBBField) gbbcConstraintBox cache type') =
+          (FieldName gbbcGeoBBField) gbbcConstraintBox type') =
     object [gbbcGeoBBField .= gbbcConstraintBox
-           , "_cache"  .= cache
            , "type" .= type']
 
 instance FromJSON GeoBoundingBoxConstraint where
   parseJSON = withObject "GeoBoundingBoxConstraint" parse
-    where parse o = case HM.toList (deleteSeveral ["type", "_cache"] o) of
+    where parse o = case HM.toList (deleteSeveral ["type"] o) of
                       [(fn, v)] -> GeoBoundingBoxConstraint (FieldName fn)
                                    <$> parseJSON v
-                                   <*> o .:? "_cache" .!= defaultCache
                                    <*> o .: "type"
                       _ -> fail "Could not find field name for GeoBoundingBoxConstraint"
 
